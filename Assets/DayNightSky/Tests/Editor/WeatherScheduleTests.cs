@@ -82,7 +82,7 @@ namespace DayNightSky.Tests
         {
             var s = Create(config, 7);
             var segments = Walk(s, 3000);
-            int clear = s.FindPreset("clear"), cloudy = s.FindPreset("cloudy"), overcast = s.FindPreset("overcast");
+            int clear = s.FindPreset("clear"), cloudy = s.FindPreset("cloudy"), overcast = s.FindPreset("overcast"), rain = s.FindPreset("rain");
             Assert.AreEqual(clear, segments[0].toPreset, "Starts with the start preset");
             Assert.AreEqual(0.0, segments[0].transitionStartHours);
 
@@ -102,7 +102,8 @@ namespace DayNightSky.Tests
                 Assert.That(seg.transitionHours * 60.0, NUnit.Framework.Is.InRange(config.minTransitionMinutes - 1e-3, config.maxTransitionMinutes + 1e-3));
 
                 if (seg.fromPreset == clear) Assert.AreEqual(cloudy, seg.toPreset, "Clear -> Cloudy only");
-                if (seg.fromPreset == overcast) Assert.AreEqual(cloudy, seg.toPreset, "Overcast -> Cloudy only");
+                if (seg.fromPreset == overcast) Assert.IsTrue(seg.toPreset == cloudy || seg.toPreset == rain, "Overcast -> Cloudy or Rain");
+                if (seg.fromPreset == rain) Assert.AreEqual(overcast, seg.toPreset, "Rain -> Overcast only");
                 if (seg.fromPreset == cloudy)
                 {
                     Assert.AreNotEqual(cloudy, seg.toPreset, "Cloudy -> Clear or Overcast");

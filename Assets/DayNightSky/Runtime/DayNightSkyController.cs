@@ -21,24 +21,29 @@ namespace DayNightSky
         [Range(0f, 1f)] public float overcast;
         [Tooltip("Cloud-plane units per second (see Wind Speed on the controller).")]
         [Min(0f)] public float windSpeed;
+        [Tooltip("0 = dry, 1 = heaviest rain. Drawn by RainController, not by the sky.")]
+        [Range(0f, 1f)] public float rain;
 
-        public CloudWeather(float coverage, float softness, float overcast, float windSpeed)
+        public CloudWeather(float coverage, float softness, float overcast, float windSpeed, float rain = 0f)
         {
             this.coverage = coverage;
             this.softness = softness;
             this.overcast = overcast;
             this.windSpeed = windSpeed;
+            this.rain = rain;
         }
 
         public static CloudWeather Lerp(CloudWeather a, CloudWeather b, float t) => new CloudWeather(
             Mathf.Lerp(a.coverage, b.coverage, t),
             Mathf.Lerp(a.softness, b.softness, t),
             Mathf.Lerp(a.overcast, b.overcast, t),
-            Mathf.Lerp(a.windSpeed, b.windSpeed, t));
+            Mathf.Lerp(a.windSpeed, b.windSpeed, t),
+            Mathf.Lerp(a.rain, b.rain, t));
 
         public bool Approximately(CloudWeather o) =>
             Mathf.Abs(coverage - o.coverage) + Mathf.Abs(softness - o.softness) +
-            Mathf.Abs(overcast - o.overcast) + Mathf.Abs(windSpeed - o.windSpeed) < 1e-5f;
+            Mathf.Abs(overcast - o.overcast) + Mathf.Abs(windSpeed - o.windSpeed) +
+            Mathf.Abs(rain - o.rain) < 1e-5f;
     }
 
     /// <summary>Shared transition maths, so every weather blend eases the same way.</summary>
@@ -190,6 +195,11 @@ namespace DayNightSky
         [Tooltip("Directional light intensity multiplier at full overcast (always applied to the day/night value, never accumulated).")]
         [Range(0f, 1f)] public float overcastLightMultiplier = 0.5f;
 
+        [Header("Rain")]
+        [Tooltip("0 = dry, 1 = heaviest rain. Read by RainController (the sky shader draws no rain). " +
+                 "Driven by the weather schedule when one is attached.")]
+        [Range(0f, 1f)] public float rainIntensity = 0f;
+
         [Header("Weather Presets")]
         [Tooltip("Seconds used by TransitionToPreset when no duration is given.")]
         [Min(0f)] public float transitionDuration = 8f;
@@ -236,6 +246,7 @@ namespace DayNightSky
         float transitionElapsed, transitionLength;
         CloudWeather lastWrittenWeather;
         ISkyWeatherDriver weatherDriver;
+        SkyState currentState;
 #if UNITY_EDITOR
         double lastEditorTime;
         double lastEditorRepaint;
@@ -304,12 +315,16 @@ namespace DayNightSky
         /// <summary>Cloud-plane units per second (real time). See the field tooltip.</summary>
         public float WindSpeed { get => windSpeed; set { windSpeed = Mathf.Max(0f, value); dirty = true; } }
         public float OvercastAmount { get => overcastAmount; set { overcastAmount = Mathf.Clamp01(value); dirty = true; } }
+        /// <summary>0..1, read by RainController. Part of the blended weather like coverage and overcast.</summary>
+        public float RainIntensity { get => rainIntensity; set { rainIntensity = Mathf.Clamp01(value); dirty = true; } }
+        /// <summary>The sky state last written to the material and light (colours, sun, phase). No allocation.</summary>
+        public SkyState CurrentState => currentState;
         public float TransitionDuration { get => transitionDuration; set => transitionDuration = Mathf.Max(0f, value); }
 
         /// <summary>The weather currently shown (changes every frame during a transition).</summary>
         public CloudWeather CurrentWeather
         {
-            get => new CloudWeather(cloudCoverage, cloudSoftness, overcastAmount, windSpeed);
+            get => new CloudWeather(cloudCoverage, cloudSoftness, overcastAmount, windSpeed, rainIntensity);
             set => SetWeather(value);
         }
 
@@ -391,6 +406,7 @@ namespace DayNightSky
             cloudSoftness = Mathf.Clamp01(w.softness);
             overcastAmount = Mathf.Clamp01(w.overcast);
             windSpeed = Mathf.Max(0f, w.windSpeed);
+            rainIntensity = Mathf.Clamp01(w.rain);
             lastWrittenWeather = CurrentWeather;
             dirty = true;
         }
@@ -638,6 +654,7 @@ namespace DayNightSky
         {
             dirty = false;
             var s = Evaluate(timeOfDay);
+            currentState = s;
 
             if (instance != null)
             {

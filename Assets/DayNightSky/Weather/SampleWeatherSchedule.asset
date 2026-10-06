@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b3db41ee787dfb344bd89dbd9d50cf09, type: 3}
   m_Name: SampleWeatherSchedule
   m_EditorClassIdentifier: DayNightSky.Runtime::DayNightSky.WeatherScheduleConfig
+  configVersion: 2
   seed: 20261006
   startPresetId: clear
   minTransitionMinutes: 45
@@ -26,6 +27,7 @@ MonoBehaviour:
     windDirection: 60
     windDirectionJitter: 25
     coverageJitter: 0.04
+    rainIntensity: 0
   - id: cloudy
     displayName: Cloudy
     cloudCoverage: 0.42
@@ -35,6 +37,7 @@ MonoBehaviour:
     windDirection: 75
     windDirectionJitter: 25
     coverageJitter: 0.06
+    rainIntensity: 0
   - id: overcast
     displayName: Overcast
     cloudCoverage: 0.9
@@ -44,6 +47,17 @@ MonoBehaviour:
     windDirection: 110
     windDirectionJitter: 20
     coverageJitter: 0.03
+    rainIntensity: 0
+  - id: rain
+    displayName: Rain
+    cloudCoverage: 0.97
+    cloudSoftness: 0.65
+    overcastAmount: 1
+    windSpeed: 0.02
+    windDirection: 125
+    windDirectionJitter: 20
+    coverageJitter: 0.02
+    rainIntensity: 0.75
   rules:
   - fromPresetId: clear
     minHoldHours: 3
@@ -60,8 +74,16 @@ MonoBehaviour:
     - presetId: overcast
       weight: 0.7
   - fromPresetId: overcast
-    minHoldHours: 2
-    maxHoldHours: 5
+    minHoldHours: 1.5
+    maxHoldHours: 4
     next:
     - presetId: cloudy
+      weight: 1
+    - presetId: rain
+      weight: 0.8
+  - fromPresetId: rain
+    minHoldHours: 1.5
+    maxHoldHours: 4
+    next:
+    - presetId: overcast
       weight: 1

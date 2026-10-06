@@ -23,12 +23,16 @@ namespace DayNightSky
         [Range(0f, 180f)] public float windDirectionJitter = 20f;
         [Tooltip("Each visit shifts the coverage by up to ± this amount, so no two visits look identical.")]
         [Range(0f, 0.3f)] public float coverageJitter = 0.04f;
+        [Tooltip("0 = dry, 1 = heaviest rain (RainController's full emission). Blended like the other values.")]
+        [Range(0f, 1f)] public float rainIntensity = 0f;
 
         public WeatherPresetDefinition() { }
 
         public WeatherPresetDefinition(string id, string displayName, float coverage, float softness, float overcast,
-                                       float windSpeed, float windDirection, float windJitter, float coverageJitter)
+                                       float windSpeed, float windDirection, float windJitter, float coverageJitter,
+                                       float rainIntensity = 0f)
         {
+            this.rainIntensity = rainIntensity;
             this.id = id;
             this.displayName = displayName;
             cloudCoverage = coverage;
@@ -85,7 +89,12 @@ namespace DayNightSky
     {
         /// <summary>Holds shorter than this are rejected, so generation always moves forward.</summary>
         public const float MinimumHoldHours = 1f / 60f;
+        /// <summary>Version of <see cref="SetDefaults"/>. 2 added Rain (Overcast -> Cloudy or Rain, Rain -> Overcast).</summary>
+        public const int DefaultsVersion = 2;
 
+        [Tooltip("Bump when presets or rules change. A schedule is reproducible only for the same seed, " +
+                 "config contents and WeatherSchedule.AlgorithmVersion; changing rules changes the schedule of old seeds.")]
+        public int configVersion = DefaultsVersion;
         [Tooltip("Same seed + same config = same schedule.")]
         public int seed = 20261006;
         [Tooltip("Preset shown at game time 0 (day 0, 00:00).")]
@@ -100,11 +109,13 @@ namespace DayNightSky
         void Reset() => SetDefaults();
 
         /// <summary>
-        /// Clear -> Cloudy, Cloudy -> Clear or Overcast, Overcast -> Cloudy. Preset values match the
-        /// sky controller's accepted Clear/Cloudy/Overcast presets; wind directions vary per state.
+        /// Clear -> Cloudy, Cloudy -> Clear or Overcast, Overcast -> Cloudy or Rain, Rain -> Overcast.
+        /// Clear/Cloudy/Overcast match the sky controller's accepted presets (no rain); Rain is a heavier,
+        /// darker overcast with rain. Wind directions vary per state.
         /// </summary>
         public void SetDefaults()
         {
+            configVersion = DefaultsVersion;
             seed = 20261006;
             startPresetId = "clear";
             minTransitionMinutes = 45f;
@@ -114,12 +125,14 @@ namespace DayNightSky
                 new WeatherPresetDefinition("clear", "Clear", 0.12f, 0.4f, 0f, 0.006f, 60f, 25f, 0.04f),
                 new WeatherPresetDefinition("cloudy", "Cloudy", 0.42f, 0.35f, 0f, 0.01f, 75f, 25f, 0.06f),
                 new WeatherPresetDefinition("overcast", "Overcast", 0.9f, 0.6f, 1f, 0.016f, 110f, 20f, 0.03f),
+                new WeatherPresetDefinition("rain", "Rain", 0.97f, 0.65f, 1f, 0.02f, 125f, 20f, 0.02f, 0.75f),
             };
             rules = new[]
             {
                 new WeatherRule("clear", 3f, 8f, new WeatherNextOption("cloudy", 1f)),
                 new WeatherRule("cloudy", 2f, 6f, new WeatherNextOption("clear", 1f), new WeatherNextOption("overcast", 0.7f)),
-                new WeatherRule("overcast", 2f, 5f, new WeatherNextOption("cloudy", 1f)),
+                new WeatherRule("overcast", 1.5f, 4f, new WeatherNextOption("cloudy", 1f), new WeatherNextOption("rain", 0.8f)),
+                new WeatherRule("rain", 1.5f, 4f, new WeatherNextOption("overcast", 1f)),
             };
         }
 
@@ -143,6 +156,7 @@ namespace DayNightSky
                     if (p == null || string.IsNullOrWhiteSpace(p.id)) errors.Add($"Preset #{i} has no ID.");
                     else if (!ids.Add(p.id)) errors.Add($"Duplicate preset ID '{p.id}'.");
                     else if (p.windSpeed < 0f) errors.Add($"Preset '{p.id}': wind speed is negative.");
+                    else if (!(p.rainIntensity >= 0f && p.rainIntensity <= 1f)) errors.Add($"Preset '{p.id}': rain intensity must be within 0..1.");
                 }
 
             if (string.IsNullOrWhiteSpace(startPresetId)) errors.Add("Start preset is not set.");

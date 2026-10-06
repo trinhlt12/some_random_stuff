@@ -7,9 +7,9 @@ namespace DayNightSky
     /// <summary>Everything the sky needs for one moment of weather.</summary>
     public struct WeatherSample
     {
-        public float coverage, softness, overcast, windSpeed, windDirection;
+        public float coverage, softness, overcast, windSpeed, windDirection, rain;
 
-        public CloudWeather Clouds => new CloudWeather(coverage, softness, overcast, windSpeed);
+        public CloudWeather Clouds => new CloudWeather(coverage, softness, overcast, windSpeed, rain);
 
         /// <summary>Linear blend (callers apply easing); wind direction takes the short way round.</summary>
         public static WeatherSample Lerp(in WeatherSample a, in WeatherSample b, float t) => new WeatherSample
@@ -19,6 +19,7 @@ namespace DayNightSky
             overcast = Mathf.Lerp(a.overcast, b.overcast, t),
             windSpeed = Mathf.Lerp(a.windSpeed, b.windSpeed, t),
             windDirection = WeatherMath.LerpAngle(a.windDirection, b.windDirection, t),
+            rain = Mathf.Lerp(a.rain, b.rain, t),
         };
     }
 
@@ -112,6 +113,7 @@ namespace DayNightSky
                         overcast = Mathf.Clamp01(p.overcastAmount),
                         windSpeed = Mathf.Max(0f, p.windSpeed),
                         windDirection = WeatherMath.WrapAngle(p.windDirection),
+                        rain = Mathf.Clamp01(p.rainIntensity),
                     },
                     windJitter = Mathf.Max(0f, p.windDirectionJitter),
                     coverageJitter = Mathf.Max(0f, p.coverageJitter),
