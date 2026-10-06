@@ -100,6 +100,48 @@ namespace DayNightSky.Tests
         }
 
         [UnityTest]
+        public IEnumerator WeatherSchedule_RunsOnTheSharedClockInPlayMode()
+        {
+            var sky = Create(out var template);
+            var config = WeatherScheduleConfig.CreateDefault();
+            sky.gameObject.SetActive(false);
+            var weather = sky.gameObject.AddComponent<WeatherScheduleController>();
+            weather.config = config;
+            sky.gameObject.SetActive(true);
+            sky.dayLengthSeconds = 24f;   // 1 game hour per real second
+            sky.clockSpeed = 20f;         // 20 game hours per real second
+            sky.TotalHours = 10.0;
+
+            float start = Time.time;
+            while (Time.time - start < 1.5f) yield return null;
+            Assert.GreaterOrEqual(sky.Day, 1, "Days should pass at clock speed 20");
+            Assert.AreEqual(sky.TotalHours, weather.ScheduleHours, 1e-6, "The schedule follows the shared clock");
+            var expected = weather.Schedule.Evaluate(sky.TotalHours);
+            Assert.AreEqual(expected.coverage, sky.CloudCoverage, 1e-4f);
+            Assert.AreEqual(expected.overcast, sky.OvercastAmount, 1e-4f);
+
+            // Pause holds the clock, the weather and the cloud drift.
+            weather.Pause();
+            yield return null;
+            double clock = sky.TotalHours;
+            var offset = sky.CloudOffset;
+            for (int i = 0; i < 10; i++) yield return null;
+            Assert.AreEqual(clock, sky.TotalHours);
+            Assert.AreEqual(offset, sky.CloudOffset);
+            weather.Resume();
+            for (int i = 0; i < 5; i++) yield return null;
+            Assert.Greater(sky.TotalHours, clock);
+
+            // Steady frames allocate nothing.
+            for (int i = 0; i < 10; i++) sky.Tick(0.016f);
+            Assert.That(() => { for (int i = 0; i < 300; i++) sky.Tick(0.016f); }, Is.Not.AllocatingGCMemory());
+
+            Object.Destroy(sky.gameObject);
+            Object.Destroy(template);
+            Object.Destroy(config);
+        }
+
+        [UnityTest]
         public IEnumerator SteadyUpdate_DoesNotAllocate()
         {
             var sky = Create(out var template);

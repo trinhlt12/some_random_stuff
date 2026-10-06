@@ -20,6 +20,20 @@ namespace DayNightSky.Editor
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Weather Preview", EditorStyles.boldLabel);
 
+            bool driven = sky.WeatherDriver != null;
+            if (driven)
+                EditorGUILayout.HelpBox("The weather (clouds, overcast, wind) is driven by the Weather Schedule component; " +
+                                        "use its controls. Values edited here are overwritten.", MessageType.Info);
+            using (new EditorGUI.DisabledScope(driven))
+            {
+                DrawPresetButtons(sky);
+            }
+
+            DrawNoise(sky);
+        }
+
+        void DrawPresetButtons(DayNightSkyController sky)
+        {
             using (new EditorGUILayout.HorizontalScope())
             {
                 EditorGUILayout.PrefixLabel(new GUIContent("Transition To", "Blend from the weather shown now over Transition Duration seconds."));
@@ -49,7 +63,10 @@ namespace DayNightSky.Editor
                 EditorGUI.ProgressBar(rect, sky.TransitionProgress, $"Transition {sky.TransitionProgress:P0}");
                 Repaint();
             }
+        }
 
+        void DrawNoise(DayNightSkyController sky)
+        {
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Cloud Noise", EditorStyles.boldLabel);
             var noise = sky.skyMaterial != null && sky.skyMaterial.HasProperty(DayNightSkyMenu.CloudNoiseProperty)

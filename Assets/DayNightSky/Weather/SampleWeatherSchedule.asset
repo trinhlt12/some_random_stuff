@@ -1,0 +1,67 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b3db41ee787dfb344bd89dbd9d50cf09, type: 3}
+  m_Name: SampleWeatherSchedule
+  m_EditorClassIdentifier: DayNightSky.Runtime::DayNightSky.WeatherScheduleConfig
+  seed: 20261006
+  startPresetId: clear
+  minTransitionMinutes: 45
+  maxTransitionMinutes: 120
+  presets:
+  - id: clear
+    displayName: Clear
+    cloudCoverage: 0.12
+    cloudSoftness: 0.4
+    overcastAmount: 0
+    windSpeed: 0.006
+    windDirection: 60
+    windDirectionJitter: 25
+    coverageJitter: 0.04
+  - id: cloudy
+    displayName: Cloudy
+    cloudCoverage: 0.42
+    cloudSoftness: 0.35
+    overcastAmount: 0
+    windSpeed: 0.01
+    windDirection: 75
+    windDirectionJitter: 25
+    coverageJitter: 0.06
+  - id: overcast
+    displayName: Overcast
+    cloudCoverage: 0.9
+    cloudSoftness: 0.6
+    overcastAmount: 1
+    windSpeed: 0.016
+    windDirection: 110
+    windDirectionJitter: 20
+    coverageJitter: 0.03
+  rules:
+  - fromPresetId: clear
+    minHoldHours: 3
+    maxHoldHours: 8
+    next:
+    - presetId: cloudy
+      weight: 1
+  - fromPresetId: cloudy
+    minHoldHours: 2
+    maxHoldHours: 6
+    next:
+    - presetId: clear
+      weight: 1
+    - presetId: overcast
+      weight: 0.7
+  - fromPresetId: overcast
+    minHoldHours: 2
+    maxHoldHours: 5
+    next:
+    - presetId: cloudy
+      weight: 1

@@ -41,6 +41,36 @@ namespace DayNightSky
             Mathf.Abs(overcast - o.overcast) + Mathf.Abs(windSpeed - o.windSpeed) < 1e-5f;
     }
 
+    /// <summary>Shared transition maths, so every weather blend eases the same way.</summary>
+    public static class WeatherMath
+    {
+        /// <summary>Smoothstep easing used by all weather transitions.</summary>
+        public static float Ease(float t)
+        {
+            t = Mathf.Clamp01(t);
+            return t * t * (3f - 2f * t);
+        }
+
+        /// <summary>Wraps degrees to [-180, 180).</summary>
+        public static float WrapAngle(float degrees) => Mathf.Repeat(degrees + 180f, 360f) - 180f;
+
+        /// <summary>Blends angles along the shorter arc (350° -> 10° passes through 0°).</summary>
+        public static float LerpAngle(float a, float b, float t) => WrapAngle(a + Mathf.DeltaAngle(a, b) * t);
+    }
+
+    /// <summary>
+    /// Something that decides the weather from the shared clock (e.g. a schedule). The sky calls it
+    /// once per Tick, after advancing the clock and before writing the material and light, so the
+    /// sky stays the only writer. At most one driver per sky.
+    /// </summary>
+    public interface ISkyWeatherDriver
+    {
+        /// <param name="deltaTime">Real seconds since the last tick, 0 while the clock is paused.</param>
+        void DriveWeather(DayNightSkyController sky, float deltaTime);
+        /// <summary>True while the driver needs Edit Mode repaints (e.g. during a blend).</summary>
+        bool IsAnimating { get; }
+    }
+
     /// <summary>
     /// Drives the "Skybox/Day Night Gradient" shader. Everything that depends on the time of day
     /// or the weather (sun direction, colours, visibility, cloud thresholds, wind) is computed here
@@ -70,6 +100,12 @@ namespace DayNightSky
         public bool autoAdvance = true;
         [Tooltip("Real seconds for a full 24 h cycle.")]
         [Min(1f)] public float dayLengthSeconds = 240f;
+        [Tooltip("Day counter, +1 each time the running clock passes midnight. Day and Time Of Day form the " +
+                 "shared game clock (Total Hours = Day × 24 + Time Of Day) that the weather schedule follows.")]
+        [Min(0)] public int day = 0;
+        [Tooltip("Clock speed multiplier for testing: 10 = days pass 10× faster. Moves day/night and the " +
+                 "weather schedule together; the cloud drift (wind) stays in real time.")]
+        [Min(0f)] public float clockSpeed = 1f;
 
         [Header("Sun path")]
         [Tooltip("Rotates the sun's path around world up (0 = rises at +X, sets at -X).")]
@@ -199,6 +235,7 @@ namespace DayNightSky
         CloudWeather transitionFrom, transitionTo;
         float transitionElapsed, transitionLength;
         CloudWeather lastWrittenWeather;
+        ISkyWeatherDriver weatherDriver;
 #if UNITY_EDITOR
         double lastEditorTime;
         double lastEditorRepaint;
@@ -207,6 +244,7 @@ namespace DayNightSky
         /// <summary>Material instance currently used (null when disabled or no template).</summary>
         public Material MaterialInstance => instance;
 
+        /// <summary>Hours, 0–24. Setting it does not change <see cref="Day"/>.</summary>
         public float TimeOfDay
         {
             get => timeOfDay;
@@ -215,6 +253,47 @@ namespace DayNightSky
                 timeOfDay = Wrap(value);
                 dirty = true;
             }
+        }
+
+        public int Day { get => day; set { day = Mathf.Max(0, value); dirty = true; } }
+
+        /// <summary>The shared game clock in game hours since day 0, 00:00 (Day × 24 + Time Of Day).</summary>
+        public double TotalHours
+        {
+            get => day * 24.0 + timeOfDay;
+            set
+            {
+                double h = Math.Max(0.0, value);
+                day = (int)Math.Floor(h / 24.0);
+                timeOfDay = Mathf.Min((float)(h - day * 24.0), 23.99999f);
+                dirty = true;
+            }
+        }
+
+        /// <summary>
+        /// Stops the shared clock, the cloud drift and the sky's own preset transitions. The image
+        /// holds exactly as it is. Not saved with the scene.
+        /// </summary>
+        public bool ClockPaused { get; set; }
+
+        /// <summary>Real seconds per game hour at the current clock speed (infinity when stopped).</summary>
+        public double RealSecondsPerGameHour =>
+            clockSpeed > 0f ? Mathf.Max(1f, dayLengthSeconds) / 24.0 / clockSpeed : double.PositiveInfinity;
+
+        /// <summary>The driver deciding the weather, if any.</summary>
+        public ISkyWeatherDriver WeatherDriver => weatherDriver;
+
+        /// <summary>Lets one driver decide the weather. Returns false if another driver owns it.</summary>
+        public bool RegisterWeatherDriver(ISkyWeatherDriver driver)
+        {
+            if (weatherDriver != null && !ReferenceEquals(weatherDriver, driver)) return false;
+            weatherDriver = driver;
+            return true;
+        }
+
+        public void UnregisterWeatherDriver(ISkyWeatherDriver driver)
+        {
+            if (ReferenceEquals(weatherDriver, driver)) weatherDriver = null;
         }
 
         public float CloudCoverage { get => cloudCoverage; set { cloudCoverage = Mathf.Clamp01(value); dirty = true; } }
@@ -282,6 +361,30 @@ namespace DayNightSky
 #endif
         }
 
+        /// <summary>
+        /// Shows the transition <paramref name="from"/> -> <paramref name="to"/> at a given progress
+        /// (0..1), with the same easing as <see cref="TransitionToWeather"/>. For callers that drive
+        /// transitions from an absolute clock instead of deltaTime. Wind direction takes the short
+        /// way round. Cancels a running time-based transition; does nothing if the result is unchanged.
+        /// </summary>
+        public void ApplyTransitionAt(CloudWeather from, CloudWeather to, float progress,
+                                      float fromWindDirection, float toWindDirection)
+        {
+            float t = WeatherMath.Ease(progress);
+            SetWeatherState(CloudWeather.Lerp(from, to, t), WeatherMath.LerpAngle(fromWindDirection, toWindDirection, t));
+        }
+
+        /// <summary>Shows exactly this weather and wind direction (cancels a running transition).</summary>
+        public void SetWeatherState(CloudWeather weather, float windDirectionDegrees)
+        {
+            transitionActive = false;
+            float dir = WeatherMath.WrapAngle(windDirectionDegrees);
+            if (CurrentWeather.Approximately(weather) && Mathf.Abs(Mathf.DeltaAngle(windDirection, dir)) < 1e-4f) return;
+            SetWeather(weather);
+            // Only the direction changes: the accumulated cloud offset keeps the clouds in place.
+            windDirection = dir;
+        }
+
         void SetWeather(CloudWeather w)
         {
             cloudCoverage = Mathf.Clamp01(w.coverage);
@@ -344,21 +447,23 @@ namespace DayNightSky
         }
 
         /// <summary>
-        /// Advances time (Play Mode auto-advance), weather transitions and wind, and pushes values
-        /// only when something changed. Wind only moves in Play Mode or with the Edit Mode preview on.
+        /// Advances the shared clock (Play Mode auto-advance), weather transitions and wind, lets the
+        /// weather driver decide the weather, and pushes values only when something changed. Wind only
+        /// moves in Play Mode or with the Edit Mode preview on. Nothing advances while ClockPaused.
         /// </summary>
         public void Tick(float deltaTime)
         {
-            if (autoAdvance && Application.isPlaying && deltaTime > 0f)
-            {
-                timeOfDay = Wrap(timeOfDay + deltaTime * 24f / Mathf.Max(1f, dayLengthSeconds));
-                dirty = true;
-            }
+            if (ClockPaused) deltaTime = 0f;
+
+            if (autoAdvance && Application.isPlaying && deltaTime > 0f && clockSpeed > 0f)
+                AdvanceClock(deltaTime * clockSpeed * 24f / Mathf.Max(1f, dayLengthSeconds));
 
             if (transitionActive && deltaTime > 0f) AdvanceTransition(deltaTime);
 
             if ((Application.isPlaying || previewCloudMotionInEditMode) && deltaTime > 0f)
                 AdvanceWind(deltaTime);
+
+            weatherDriver?.DriveWeather(this, deltaTime);
 
             if (instanceSource != skyMaterial || appliedAsSkybox != (applyAsSkybox && instance != null))
             {
@@ -375,11 +480,18 @@ namespace DayNightSky
             }
         }
 
+        /// <summary>Moves the shared clock forward by game hours, counting days across midnight.</summary>
+        public void AdvanceClock(double hours)
+        {
+            if (!(hours > 0.0)) return;
+            TotalHours = TotalHours + hours;
+        }
+
         void AdvanceTransition(float deltaTime)
         {
             transitionElapsed += deltaTime;
             float t = Mathf.Clamp01(transitionElapsed / transitionLength);
-            SetWeather(CloudWeather.Lerp(transitionFrom, transitionTo, t * t * (3f - 2f * t)));
+            SetWeather(CloudWeather.Lerp(transitionFrom, transitionTo, WeatherMath.Ease(t)));
             if (t >= 1f)
             {
                 transitionActive = false;
@@ -410,7 +522,7 @@ namespace DayNightSky
         void OnEditorUpdate()
         {
             if (Application.isPlaying) return;
-            bool animating = transitionActive ||
+            bool animating = transitionActive || (weatherDriver != null && weatherDriver.IsAnimating) ||
                              (previewCloudMotionInEditMode && windSpeed > 0f && cloudCoverage > 0f);
             if (!animating) return;
             double now = EditorApplication.timeSinceStartup;
