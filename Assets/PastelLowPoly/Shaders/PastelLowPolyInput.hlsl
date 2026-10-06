@@ -30,7 +30,12 @@ CBUFFER_START(UnityPerMaterial)
     half _Brightness;
     half _Contrast;
     half _HighlightKnee;
+    half _WetExposure;
+    half _WetDarkening;
 CBUFFER_END
+
+// Shared weather wetness (0..1), a global written by DayNightSky's WetnessController; unset = 0 = dry.
+float _WeatherWetness;
 
 // World-space normal of the triangle under this pixel, from screen-space derivatives of the
 // camera-relative position (camera-relative keeps precision far from the origin). The sign of a

@@ -117,6 +117,8 @@ half4 PastelFragment(PastelVaryings input, FRONT_FACE_TYPE isFrontFace : FRONT_F
     UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
     half3 albedo = PastelAlbedo(input).rgb;
+    // Weather wetness: mild uniform darkening. Exposure 0 (the default) leaves the colour unchanged.
+    albedo *= 1.0h - _WetDarkening * saturate((half)_WeatherWetness * _WetExposure);
 
     #if defined(_NORMALMODE_FLAT)
         float3 normalWS = FlatNormalWS(input.positionWS);

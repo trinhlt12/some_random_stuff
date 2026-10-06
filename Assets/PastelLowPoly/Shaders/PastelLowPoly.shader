@@ -48,6 +48,11 @@ Shader "Pastel/Low Poly Pastel"
         _Contrast("Contrast", Range(0.5, 1.5)) = 0.85
         _HighlightKnee("Highlight Soft Clip Start", Range(0.5, 1)) = 0.85
 
+        [Header(Weather Wetness)]
+        // Matte shader: wetness only darkens the colour (no specular, so no gloss). 0 = never wet.
+        _WetExposure("Rain Exposure (0 = never wet)", Range(0, 1)) = 0
+        _WetDarkening("Wet Darkening", Range(0, 1)) = 0.3
+
         [Header(Advanced)]
         [Enum(UnityEngine.Rendering.CullMode)] _Cull("Cull", Float) = 2
     }
