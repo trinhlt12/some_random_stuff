@@ -322,6 +322,7 @@ GameObject:
   - component: {fileID: 1558325727}
   - component: {fileID: 1558325726}
   - component: {fileID: 1558325728}
+  - component: {fileID: 1558325729}
   m_Layer: 0
   m_Name: Day Night Sky
   m_TagString: Untagged
@@ -607,6 +608,87 @@ MonoBehaviour:
   seedOverride: 1
   manualBlendSeconds: 4
   previewInEditMode: 1
+--- !u!114 &1558325729
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1558325725}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e5f68233633efb14d9546d27e36f49ce, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: DayNightSky.Runtime::DayNightSky.WetnessController
+  sky: {fileID: 1558325726}
+  settings:
+    wettingRatePerHour: 4
+    dryingRatePerHour: 0.6
+    sunDryingBoost: 1
+    windDryingBoost: 0.5
+    windReference: 0.02
+  largeStepHours: 0.25
+  subStepHours: 0.05
+  recomputeHours: 36
+  rewindPolicy: 0
+  recomputeOnStart: 1
+--- !u!1001 &1819154345
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 786743367062019315, guid: 91421b0e95a026f41b1bd7a31d0b1615, type: 3}
+      propertyPath: m_Name
+      value: WeatherWetnessDemo
+      objectReference: {fileID: 0}
+    - target: {fileID: 4675511325941292205, guid: 91421b0e95a026f41b1bd7a31d0b1615, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: -7.794228
+      objectReference: {fileID: 0}
+    - target: {fileID: 4675511325941292205, guid: 91421b0e95a026f41b1bd7a31d0b1615, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4675511325941292205, guid: 91421b0e95a026f41b1bd7a31d0b1615, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: -4.500001
+      objectReference: {fileID: 0}
+    - target: {fileID: 4675511325941292205, guid: 91421b0e95a026f41b1bd7a31d0b1615, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 0.86602545
+      objectReference: {fileID: 0}
+    - target: {fileID: 4675511325941292205, guid: 91421b0e95a026f41b1bd7a31d0b1615, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4675511325941292205, guid: 91421b0e95a026f41b1bd7a31d0b1615, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0.49999994
+      objectReference: {fileID: 0}
+    - target: {fileID: 4675511325941292205, guid: 91421b0e95a026f41b1bd7a31d0b1615, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4675511325941292205, guid: 91421b0e95a026f41b1bd7a31d0b1615, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4675511325941292205, guid: 91421b0e95a026f41b1bd7a31d0b1615, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4675511325941292205, guid: 91421b0e95a026f41b1bd7a31d0b1615, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 91421b0e95a026f41b1bd7a31d0b1615, type: 3}
 --- !u!1 &2089390782
 GameObject:
   m_ObjectHideFlags: 0
@@ -718,3 +800,4 @@ SceneRoots:
   - {fileID: 233795261}
   - {fileID: 1558325727}
   - {fileID: 891437018}
+  - {fileID: 1819154345}
