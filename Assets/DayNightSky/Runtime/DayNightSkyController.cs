@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 #if UNITY_EDITOR
 using UnityEditor;
@@ -6,10 +7,45 @@ using UnityEditor.SceneManagement;
 
 namespace DayNightSky
 {
+    public enum CloudPreset { Clear, Cloudy, Overcast }
+
+    /// <summary>The part of the weather that presets blend between.</summary>
+    [Serializable]
+    public struct CloudWeather
+    {
+        [Tooltip("0 = no clouds at all, 1 = the whole sky is covered.")]
+        [Range(0f, 1f)] public float coverage;
+        [Tooltip("Width of the soft cloud edge. Low = crisp cartoon puffs, high = hazy.")]
+        [Range(0f, 1f)] public float softness;
+        [Tooltip("0 = normal sky, 1 = muted, darker sky and clouds, dimmer sun light.")]
+        [Range(0f, 1f)] public float overcast;
+        [Tooltip("Cloud-plane units per second (see Wind Speed on the controller).")]
+        [Min(0f)] public float windSpeed;
+
+        public CloudWeather(float coverage, float softness, float overcast, float windSpeed)
+        {
+            this.coverage = coverage;
+            this.softness = softness;
+            this.overcast = overcast;
+            this.windSpeed = windSpeed;
+        }
+
+        public static CloudWeather Lerp(CloudWeather a, CloudWeather b, float t) => new CloudWeather(
+            Mathf.Lerp(a.coverage, b.coverage, t),
+            Mathf.Lerp(a.softness, b.softness, t),
+            Mathf.Lerp(a.overcast, b.overcast, t),
+            Mathf.Lerp(a.windSpeed, b.windSpeed, t));
+
+        public bool Approximately(CloudWeather o) =>
+            Mathf.Abs(coverage - o.coverage) + Mathf.Abs(softness - o.softness) +
+            Mathf.Abs(overcast - o.overcast) + Mathf.Abs(windSpeed - o.windSpeed) < 1e-5f;
+    }
+
     /// <summary>
     /// Drives the "Skybox/Day Night Gradient" shader. Everything that depends on the time of day
-    /// (sun direction, colours, visibility) is computed here once per change and passed to a
-    /// private material instance; the shader only does per-view-direction work.
+    /// or the weather (sun direction, colours, visibility, cloud thresholds, wind) is computed here
+    /// and passed to a private material instance; the shader only does per-view-direction work.
+    /// This is the only writer of the sky material and of the synced directional light.
     /// World up is +Y. Sun rises at 06:00, is highest at 12:00 and sets at 18:00.
     /// </summary>
     [ExecuteAlways]
@@ -23,6 +59,8 @@ namespace DayNightSky
             public float phase;            // 0 = midnight, 0.5 = sunrise/sunset, 1 = noon
             public Color zenith, horizon, ground, glow, sunLight;
             public float sunVisibility, lightIntensity;
+            public Color cloudLit, cloudShade;
+            public float clearLightIntensity;  // light intensity before the overcast dimming
         }
 
         [Header("Time")]
@@ -76,6 +114,53 @@ namespace DayNightSky
         [Tooltip("Disable the light while the sun is below the horizon (saves the shadow pass at night).")]
         public bool disableLightAtNight = true;
 
+        [Header("Clouds")]
+        [Tooltip("0 = no clouds at all, 1 = the whole sky is covered.")]
+        [Range(0f, 1f)] public float cloudCoverage = 0.42f;
+        [Tooltip("Width of the soft cloud edge. Low = crisp cartoon puffs, high = hazy.")]
+        [Range(0f, 1f)] public float cloudSoftness = 0.35f;
+        [Tooltip("Size of the cloud shapes. 2 = twice as big (and half as many).")]
+        [Range(0.25f, 4f)] public float cloudScale = 1f;
+        [Tooltip("How much the small detail breaks up the cloud edges.")]
+        [Range(0f, 1f)] public float cloudDetail = 0.4f;
+        [Tooltip("Compass direction the clouds drift towards, in degrees on the world XZ plane: 0 = +Z, 90 = +X.")]
+        [Range(-180f, 180f)] public float windDirection = 60f;
+        [Tooltip("Cloud-plane units per second. The clouds lie on a virtual ceiling 1 unit above the viewer, " +
+                 "so at 0.01 a cloud overhead needs about 100 s to drift from the zenith to 45° elevation. " +
+                 "Real time (Time.deltaTime), independent of the day length.")]
+        [Min(0f)] public float windSpeed = 0.01f;
+        [Tooltip("Lit side of the clouds, same axis as the sky colours. Alpha = how much thin clouds near the sun catch its light.")]
+        public Gradient cloudLitColor = DefaultCloudLit();
+        [Tooltip("Thick cloud cores, same axis as the sky colours.")]
+        public Gradient cloudShadeColor = DefaultCloudShade();
+        [Tooltip("Drift the clouds in Edit Mode too (repaints the Scene and Game views ~30 times per second).")]
+        public bool previewCloudMotionInEditMode = false;
+
+        [Header("Overcast")]
+        [Tooltip("0 = normal sky, 1 = muted, darker sky and clouds, dimmer sun light.")]
+        [Range(0f, 1f)] public float overcastAmount = 0f;
+        [Tooltip("Grey tint the sky and clouds move towards when overcast.")]
+        public Color overcastTint = new Color(0.88f, 0.90f, 0.96f);
+        [Tooltip("At full overcast: how far the sky colours move towards the muted cloud colours.")]
+        [Range(0f, 1f)] public float overcastSkyMuting = 0.65f;
+        [Tooltip("At full overcast: how much darker the sky gets.")]
+        [Range(0f, 1f)] public float overcastSkyDarkening = 0.25f;
+        [Tooltip("At full overcast: how far the cloud colours move towards the grey tint.")]
+        [Range(0f, 1f)] public float overcastCloudDesaturation = 0.55f;
+        [Tooltip("At full overcast: how much darker the clouds get.")]
+        [Range(0f, 1f)] public float overcastCloudDarkening = 0.3f;
+        [Tooltip("At full overcast: how much the sun disc, sunrise/sunset glow and cloud sun-glow fade.")]
+        [Range(0f, 1f)] public float overcastSunFade = 0.7f;
+        [Tooltip("Directional light intensity multiplier at full overcast (always applied to the day/night value, never accumulated).")]
+        [Range(0f, 1f)] public float overcastLightMultiplier = 0.5f;
+
+        [Header("Weather Presets")]
+        [Tooltip("Seconds used by TransitionToPreset when no duration is given.")]
+        [Min(0f)] public float transitionDuration = 8f;
+        public CloudWeather clearPreset = new CloudWeather(0.12f, 0.4f, 0f, 0.006f);
+        public CloudWeather cloudyPreset = new CloudWeather(0.42f, 0.35f, 0f, 0.01f);
+        public CloudWeather overcastPreset = new CloudWeather(0.9f, 0.6f, 1f, 0.016f);
+
         static readonly int ZenithColorId = Shader.PropertyToID("_ZenithColor");
         static readonly int HorizonColorId = Shader.PropertyToID("_HorizonColor");
         static readonly int GroundColorId = Shader.PropertyToID("_GroundColor");
@@ -84,12 +169,40 @@ namespace DayNightSky
         static readonly int SunDirectionId = Shader.PropertyToID("_SunDirection");
         static readonly int SkyParamsId = Shader.PropertyToID("_SkyParams");
         static readonly int SunParamsId = Shader.PropertyToID("_SunParams");
+        static readonly int CloudLitColorId = Shader.PropertyToID("_CloudLitColor");
+        static readonly int CloudShadeColorId = Shader.PropertyToID("_CloudShadeColor");
+        static readonly int CloudOffsetId = Shader.PropertyToID("_CloudOffset");
+        static readonly int CloudShapeId = Shader.PropertyToID("_CloudShape");
+        static readonly int CloudDensityId = Shader.PropertyToID("_CloudDensity");
+        static readonly int CloudLightingId = Shader.PropertyToID("_CloudLighting");
+
+        // Cloud layer mapping, shared with the shader (see DayNightSky.shader).
+        const float ShapeTilesPerUnit = 0.35f;   // noise tiles per cloud-plane unit at cloudScale 1
+        const float DetailScaleRatio = 2.7f;     // detail is sampled this much finer than the shape
+        const float DetailDrift = 1.2f;          // detail drifts slightly faster: slow, gentle morphing
+        const float DomeCurvature = 0.2f;        // keeps dir.xz / (y + c) finite at the horizon
+        const float HorizonFadeHeight = 0.16f;   // sin(elevation) at which clouds are fully visible
+        const float SunHaloAngle = 28f;          // degrees around the sun where thin clouds catch light
 
         Material instance;
         Material instanceSource;
         Material previousSkybox;
         bool appliedAsSkybox;
         bool dirty = true;
+
+        // Wind offsets in noise UV (shape xy, detail zw). Wrapped to [0, 1): the noise tiles with
+        // period 1, so wrapping never moves the clouds and the values never lose precision.
+        Vector4 cloudOffset;
+        bool cloudOffsetDirty;
+
+        bool transitionActive;
+        CloudWeather transitionFrom, transitionTo;
+        float transitionElapsed, transitionLength;
+        CloudWeather lastWrittenWeather;
+#if UNITY_EDITOR
+        double lastEditorTime;
+        double lastEditorRepaint;
+#endif
 
         /// <summary>Material instance currently used (null when disabled or no template).</summary>
         public Material MaterialInstance => instance;
@@ -104,14 +217,92 @@ namespace DayNightSky
             }
         }
 
+        public float CloudCoverage { get => cloudCoverage; set { cloudCoverage = Mathf.Clamp01(value); dirty = true; } }
+        public float CloudSoftness { get => cloudSoftness; set { cloudSoftness = Mathf.Clamp01(value); dirty = true; } }
+        public float CloudScale { get => cloudScale; set { cloudScale = Mathf.Clamp(value, 0.25f, 4f); dirty = true; } }
+        /// <summary>Degrees on the world XZ plane the clouds drift towards: 0 = +Z, 90 = +X.</summary>
+        public float WindDirection { get => windDirection; set { windDirection = Mathf.Repeat(value + 180f, 360f) - 180f; dirty = true; } }
+        /// <summary>Cloud-plane units per second (real time). See the field tooltip.</summary>
+        public float WindSpeed { get => windSpeed; set { windSpeed = Mathf.Max(0f, value); dirty = true; } }
+        public float OvercastAmount { get => overcastAmount; set { overcastAmount = Mathf.Clamp01(value); dirty = true; } }
+        public float TransitionDuration { get => transitionDuration; set => transitionDuration = Mathf.Max(0f, value); }
+
+        /// <summary>The weather currently shown (changes every frame during a transition).</summary>
+        public CloudWeather CurrentWeather
+        {
+            get => new CloudWeather(cloudCoverage, cloudSoftness, overcastAmount, windSpeed);
+            set => SetWeather(value);
+        }
+
+        public bool IsTransitioning => transitionActive;
+        /// <summary>0..1 progress of the running transition (1 when idle).</summary>
+        public float TransitionProgress => transitionActive ? Mathf.Clamp01(transitionElapsed / transitionLength) : 1f;
+        /// <summary>Current wind offsets in noise UV: shape xy, detail zw, each in [0, 1).</summary>
+        public Vector4 CloudOffset => cloudOffset;
+
+        public CloudWeather GetPreset(CloudPreset preset) => preset switch
+        {
+            CloudPreset.Clear => clearPreset,
+            CloudPreset.Overcast => overcastPreset,
+            _ => cloudyPreset,
+        };
+
+        /// <summary>Jumps to a preset, cancelling any running transition.</summary>
+        public void ApplyPresetImmediate(CloudPreset preset)
+        {
+            transitionActive = false;
+            SetWeather(GetPreset(preset));
+        }
+
+        /// <summary>Blends to a preset over <see cref="transitionDuration"/> seconds.</summary>
+        public void TransitionToPreset(CloudPreset preset) => TransitionToWeather(GetPreset(preset), transitionDuration);
+
+        public void TransitionToPreset(CloudPreset preset, float duration) => TransitionToWeather(GetPreset(preset), duration);
+
+        /// <summary>
+        /// Blends from the weather shown right now (also mid-way through another transition) to
+        /// <paramref name="target"/>. Wind direction and cloud scale are not part of the blend.
+        /// </summary>
+        public void TransitionToWeather(CloudWeather target, float duration)
+        {
+            if (duration <= 0f)
+            {
+                transitionActive = false;
+                SetWeather(target);
+                return;
+            }
+            transitionFrom = CurrentWeather;
+            transitionTo = target;
+            transitionElapsed = 0f;
+            transitionLength = duration;
+            transitionActive = true;
+#if UNITY_EDITOR
+            lastEditorTime = EditorApplication.timeSinceStartup;
+            if (!Application.isPlaying) EditorApplication.QueuePlayerLoopUpdate();
+#endif
+        }
+
+        void SetWeather(CloudWeather w)
+        {
+            cloudCoverage = Mathf.Clamp01(w.coverage);
+            cloudSoftness = Mathf.Clamp01(w.softness);
+            overcastAmount = Mathf.Clamp01(w.overcast);
+            windSpeed = Mathf.Max(0f, w.windSpeed);
+            lastWrittenWeather = CurrentWeather;
+            dirty = true;
+        }
+
         void OnEnable()
         {
             dirty = true;
+            lastWrittenWeather = CurrentWeather;
             EnsureMaterial();
             Apply();
 #if UNITY_EDITOR
+            lastEditorTime = EditorApplication.timeSinceStartup;
             EditorSceneManager.sceneSaving += OnSceneSaving;
             EditorSceneManager.sceneSaved += OnSceneSaved;
+            EditorApplication.update += OnEditorUpdate;
 #endif
         }
 
@@ -120,6 +311,7 @@ namespace DayNightSky
 #if UNITY_EDITOR
             EditorSceneManager.sceneSaving -= OnSceneSaving;
             EditorSceneManager.sceneSaved -= OnSceneSaved;
+            EditorApplication.update -= OnEditorUpdate;
 #endif
             ReleaseMaterial();
         }
@@ -127,15 +319,34 @@ namespace DayNightSky
         void OnValidate()
         {
             dirty = true;
+            // Editing the weather by hand (Inspector, Undo) wins over a running transition.
+            if (transitionActive && !CurrentWeather.Approximately(lastWrittenWeather)) transitionActive = false;
 #if UNITY_EDITOR
             // Edit Mode only runs Update when something changes; ask for one so the preview follows.
             if (!Application.isPlaying) EditorApplication.QueuePlayerLoopUpdate();
 #endif
         }
 
-        void Update() => Tick(Application.isPlaying ? Time.deltaTime : 0f);
+        void Update() => Tick(FrameDeltaTime());
 
-        /// <summary>Advances time (Play Mode auto-advance) and pushes values only when something changed.</summary>
+        float FrameDeltaTime()
+        {
+            if (Application.isPlaying) return Time.deltaTime;
+#if UNITY_EDITOR
+            // Edit Mode has no reliable Time.deltaTime; clamp so a pause does not cause a jump.
+            double now = EditorApplication.timeSinceStartup;
+            float dt = Mathf.Clamp((float)(now - lastEditorTime), 0f, 0.1f);
+            lastEditorTime = now;
+            return dt;
+#else
+            return 0f;
+#endif
+        }
+
+        /// <summary>
+        /// Advances time (Play Mode auto-advance), weather transitions and wind, and pushes values
+        /// only when something changed. Wind only moves in Play Mode or with the Edit Mode preview on.
+        /// </summary>
         public void Tick(float deltaTime)
         {
             if (autoAdvance && Application.isPlaying && deltaTime > 0f)
@@ -143,6 +354,11 @@ namespace DayNightSky
                 timeOfDay = Wrap(timeOfDay + deltaTime * 24f / Mathf.Max(1f, dayLengthSeconds));
                 dirty = true;
             }
+
+            if (transitionActive && deltaTime > 0f) AdvanceTransition(deltaTime);
+
+            if ((Application.isPlaying || previewCloudMotionInEditMode) && deltaTime > 0f)
+                AdvanceWind(deltaTime);
 
             if (instanceSource != skyMaterial || appliedAsSkybox != (applyAsSkybox && instance != null))
             {
@@ -152,7 +368,58 @@ namespace DayNightSky
             }
 
             if (dirty) Apply();
+            else if (cloudOffsetDirty && instance != null)
+            {
+                instance.SetVector(CloudOffsetId, cloudOffset);
+                cloudOffsetDirty = false;
+            }
         }
+
+        void AdvanceTransition(float deltaTime)
+        {
+            transitionElapsed += deltaTime;
+            float t = Mathf.Clamp01(transitionElapsed / transitionLength);
+            SetWeather(CloudWeather.Lerp(transitionFrom, transitionTo, t * t * (3f - 2f * t)));
+            if (t >= 1f)
+            {
+                transitionActive = false;
+#if UNITY_EDITOR
+                // Keep the previewed result: field writes from code do not mark the scene dirty.
+                if (!Application.isPlaying) EditorUtility.SetDirty(this);
+#endif
+            }
+        }
+
+        void AdvanceWind(float deltaTime)
+        {
+            if (windSpeed <= 0f || cloudScale <= 0f) return;
+            // Clouds move towards windDirection. uv = plane * tiles + offset, so a feature moves by
+            // +v when the offset moves by -v * tiles.
+            float rad = windDirection * Mathf.Deg2Rad;
+            float step = windSpeed * deltaTime * ShapeTilesPerUnit / cloudScale;
+            float dx = -Mathf.Sin(rad) * step, dz = -Mathf.Cos(rad) * step;
+            float detail = DetailScaleRatio * DetailDrift;
+            cloudOffset.x = Mathf.Repeat(cloudOffset.x + dx, 1f);
+            cloudOffset.y = Mathf.Repeat(cloudOffset.y + dz, 1f);
+            cloudOffset.z = Mathf.Repeat(cloudOffset.z + dx * detail, 1f);
+            cloudOffset.w = Mathf.Repeat(cloudOffset.w + dz * detail, 1f);
+            cloudOffsetDirty = true;
+        }
+
+#if UNITY_EDITOR
+        void OnEditorUpdate()
+        {
+            if (Application.isPlaying) return;
+            bool animating = transitionActive ||
+                             (previewCloudMotionInEditMode && windSpeed > 0f && cloudCoverage > 0f);
+            if (!animating) return;
+            double now = EditorApplication.timeSinceStartup;
+            if (now - lastEditorRepaint < 1.0 / 30.0) return;
+            lastEditorRepaint = now;
+            EditorApplication.QueuePlayerLoopUpdate();
+            SceneView.RepaintAll();
+        }
+#endif
 
         static float Wrap(float hours) => Mathf.Repeat(hours, 24f);
 
@@ -188,8 +455,71 @@ namespace DayNightSky
 
             // Light fades to 0 as the sun reaches the horizon.
             float lightFade = Mathf.Clamp01(dir.y / 0.08f);
-            s.lightIntensity = sunLightIntensity * lightFade * lightFade * (3f - 2f * lightFade);
+            s.clearLightIntensity = sunLightIntensity * lightFade * lightFade * (3f - 2f * lightFade);
+
+            s.cloudLit = cloudLitColor.Evaluate(s.phase);
+            s.cloudShade = cloudShadeColor.Evaluate(s.phase);
+
+            // Overcast: muted, darker sky and clouds, faded sun. Always derived from the clear values
+            // above, so nothing accumulates between frames. The sky moves towards the muted cloud
+            // colours (lighter at the horizon), so gaps in a heavy cover stay soft instead of
+            // showing as dark cracks.
+            float ov = overcastAmount;
+            float skyMul = 1f - overcastSkyDarkening * ov, cloudMul = 1f - overcastCloudDarkening * ov;
+            var mutedShade = Mute(s.cloudShade, overcastCloudDesaturation);
+            var mutedMid = Mute(Color.Lerp(s.cloudShade, s.cloudLit, 0.5f), overcastCloudDesaturation);
+            float skyBlend = overcastSkyMuting * ov;
+            s.zenith = Color.Lerp(s.zenith, mutedShade, skyBlend) * skyMul;
+            s.horizon = Color.Lerp(s.horizon, mutedMid, skyBlend) * skyMul;
+            s.zenith.a = s.horizon.a = 1f;
+            s.ground = s.horizon * belowHorizonBrightness;
+            s.ground.a = 1f;
+            float sunFade = 1f - overcastSunFade * ov;
+            s.glow.a *= sunFade;
+            s.sunVisibility *= sunFade;
+            float silver = s.cloudLit.a * s.sunVisibility;
+            s.cloudLit = Mute(s.cloudLit, overcastCloudDesaturation * ov) * cloudMul;
+            s.cloudShade = Mute(s.cloudShade, overcastCloudDesaturation * ov) * cloudMul;
+            s.cloudLit.a = silver;
+            s.cloudShade.a = 1f;
+            s.lightIntensity = s.clearLightIntensity * Mathf.Lerp(1f, overcastLightMultiplier, ov);
             return s;
+        }
+
+        /// <summary>Moves a colour towards the overcast tint at the same luminance.</summary>
+        Color Mute(Color c, float amount)
+        {
+            float luma = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+            var grey = new Color(luma * overcastTint.r, luma * overcastTint.g, luma * overcastTint.b, c.a);
+            return Color.Lerp(c, grey, amount);
+        }
+
+        /// <summary>
+        /// Shader constants for the cloud layer (see DayNightSky.shader). n is the noise value:
+        /// shape + (detail - 0.5) * shape.w, with shape and detail equalised to [0, 1].
+        /// </summary>
+        public void GetCloudParams(out Vector4 shape, out Vector4 density, out Vector4 lighting)
+        {
+            float shapeTiles = ShapeTilesPerUnit / Mathf.Max(cloudScale, 0.01f);
+            // Little detail at low coverage keeps the few clear-sky clouds clean puffs instead of specks.
+            float detailStrength = cloudDetail * 0.5f * Mathf.Lerp(0.4f, 1f, Mathf.SmoothStep(0f, 0.4f, cloudCoverage));
+            shape = new Vector4(shapeTiles, shapeTiles * DetailScaleRatio, DomeCurvature, detailStrength);
+
+            // Soft threshold: density rises from 0 at edge0 to 1 at edge0 + soft. Coverage 0 puts
+            // edge0 at the largest possible n (no clouds at all); coverage 1 puts the full-density
+            // edge below the smallest n (sky fully covered).
+            float nMax = 1f + 0.5f * detailStrength, nMin = -0.5f * detailStrength;
+            float soft = Mathf.Lerp(0.04f, 0.5f, cloudSoftness);
+            float edge0 = Mathf.Lerp(nMax, nMin - soft, cloudCoverage);
+            float opacity = cloudCoverage > 0f ? 1f : 0f;
+            density = new Vector4(1f / soft, -edge0 / soft, opacity, 1f / HorizonFadeHeight);
+
+            // Thickness 0 at the full-density edge, 1 at the densest noise: keeps variation even in
+            // a fully overcast sky.
+            float edge1 = edge0 + soft;
+            float depth = Mathf.Max(nMax - edge1, 0.1f);
+            float cosHalo = Mathf.Cos(SunHaloAngle * Mathf.Deg2Rad);
+            lighting = new Vector4(1f / depth, -edge1 / depth, 1f / (1f - cosHalo), -cosHalo / (1f - cosHalo));
         }
 
         void Apply()
@@ -216,6 +546,15 @@ namespace DayNightSky
                 float edge = Mathf.Max(cosInner - cosOuter, 1e-6f);
                 // Glow side mask: saturate(d01 * scale + offset) is 1 facing the sun, 0 beyond the width.
                 instance.SetVector(SunParamsId, new Vector4(cosOuter, 1f / edge, 1f / glowWidth, 1f - 1f / glowWidth));
+
+                instance.SetColor(CloudLitColorId, s.cloudLit);
+                instance.SetColor(CloudShadeColorId, s.cloudShade);
+                GetCloudParams(out var cloudShape, out var cloudDensity, out var cloudLighting);
+                instance.SetVector(CloudShapeId, cloudShape);
+                instance.SetVector(CloudDensityId, cloudDensity);
+                instance.SetVector(CloudLightingId, cloudLighting);
+                instance.SetVector(CloudOffsetId, cloudOffset);
+                cloudOffsetDirty = false;
             }
 
             if (sunLight != null)
@@ -225,6 +564,7 @@ namespace DayNightSky
                     sunLight.transform.rotation = Quaternion.LookRotation(-s.sunDirection,
                         Mathf.Abs(s.sunDirection.y) > 0.999f ? Vector3.forward : Vector3.up);
                 sunLight.color = s.sunLight;
+                // Already includes the overcast dimming, computed from the day/night value every time.
                 sunLight.intensity = s.lightIntensity;
                 if (disableLightAtNight)
                 {
@@ -336,6 +676,34 @@ namespace DayNightSky
             new GradientColorKey(new Color(1.00f, 0.86f, 0.70f), 0.60f),
             new GradientColorKey(new Color(1.00f, 0.96f, 0.90f), 0.80f),
             new GradientColorKey(new Color(1.00f, 0.97f, 0.92f), 1.00f),
+        }, Opaque);
+
+        // Night clouds stay a little lighter than the night sky so their shapes remain readable.
+        static Gradient DefaultCloudLit() => Make(new[]
+        {
+            new GradientColorKey(new Color(0.25f, 0.27f, 0.42f), 0.00f),
+            new GradientColorKey(new Color(0.31f, 0.31f, 0.48f), 0.40f),
+            new GradientColorKey(new Color(1.00f, 0.74f, 0.64f), 0.50f),
+            new GradientColorKey(new Color(1.00f, 0.89f, 0.82f), 0.58f),
+            new GradientColorKey(new Color(1.00f, 0.98f, 0.96f), 0.70f),
+            new GradientColorKey(new Color(1.00f, 1.00f, 1.00f), 1.00f),
+        }, new[]
+        {
+            new GradientAlphaKey(0.0f, 0.00f),
+            new GradientAlphaKey(0.0f, 0.40f),
+            new GradientAlphaKey(0.6f, 0.50f),
+            new GradientAlphaKey(0.35f, 0.70f),
+            new GradientAlphaKey(0.35f, 1.00f),
+        });
+
+        static Gradient DefaultCloudShade() => Make(new[]
+        {
+            new GradientColorKey(new Color(0.15f, 0.16f, 0.30f), 0.00f),
+            new GradientColorKey(new Color(0.20f, 0.20f, 0.36f), 0.40f),
+            new GradientColorKey(new Color(0.64f, 0.52f, 0.64f), 0.50f),
+            new GradientColorKey(new Color(0.80f, 0.72f, 0.78f), 0.58f),
+            new GradientColorKey(new Color(0.76f, 0.82f, 0.92f), 0.70f),
+            new GradientColorKey(new Color(0.79f, 0.85f, 0.95f), 1.00f),
         }, Opaque);
     }
 }

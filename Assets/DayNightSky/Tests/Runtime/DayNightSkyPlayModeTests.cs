@@ -77,6 +77,29 @@ namespace DayNightSky.Tests
         }
 
         [UnityTest]
+        public IEnumerator Clouds_DriftAndTransitionAlongsideDayNight()
+        {
+            var sky = Create(out var template);
+            sky.dayLengthSeconds = 24f;
+            sky.WindSpeed = 0.5f;
+            sky.ApplyPresetImmediate(CloudPreset.Clear);
+            sky.TransitionToPreset(CloudPreset.Overcast, 0.3f);
+            var startOffset = sky.CloudOffset;
+            float startTime = sky.TimeOfDay;
+            float start = Time.time;
+            while (sky.IsTransitioning && Time.time - start < 2f) yield return null;
+            yield return null;
+
+            Assert.IsFalse(sky.IsTransitioning, "Transition should finish in Play Mode");
+            Assert.IsTrue(sky.CurrentWeather.Approximately(sky.overcastPreset));
+            Assert.AreNotEqual(startOffset, sky.CloudOffset, "Wind should move the clouds");
+            Assert.AreNotEqual(startTime, sky.TimeOfDay, "Day/night keeps running");
+            Assert.AreEqual(sky.CloudOffset, sky.MaterialInstance.GetVector("_CloudOffset"));
+            Object.Destroy(sky.gameObject);
+            Object.Destroy(template);
+        }
+
+        [UnityTest]
         public IEnumerator SteadyUpdate_DoesNotAllocate()
         {
             var sky = Create(out var template);

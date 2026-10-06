@@ -143,17 +143,22 @@ namespace DayNightSky.Tests
             var light = new GameObject("Sun").AddComponent<Light>();
             light.type = LightType.Directional;
             sky.sunLight = light;
+            sky.previewCloudMotionInEditMode = true;
             try
             {
                 float t = 0f;
+                int step = 0;
                 void Step()
                 {
                     t += 0.37f;
                     sky.TimeOfDay = t;
+                    if (++step % 50 == 0) sky.TransitionToPreset((CloudPreset)(step / 50 % 3), 0.5f);
                     sky.Tick(0.016f);
                 }
-                for (int i = 0; i < 20; i++) Step(); // warm-up
+                for (int i = 0; i < 60; i++) Step(); // warm-up
                 Assert.That(() => { for (int i = 0; i < 200; i++) Step(); }, Is.Not.AllocatingGCMemory());
+                // Steady state: only the wind moves.
+                Assert.That(() => { for (int i = 0; i < 200; i++) sky.Tick(0.016f); }, Is.Not.AllocatingGCMemory());
             }
             finally
             {
@@ -191,8 +196,266 @@ namespace DayNightSky.Tests
         {
             var asset = sky.skyMaterial;
             var before = asset.GetColor("_ZenithColor");
-            foreach (float t in Checkpoints) { sky.TimeOfDay = t; sky.Tick(0f); }
+            var offsetBefore = asset.GetVector("_CloudOffset");
+            var densityBefore = asset.GetVector("_CloudDensity");
+            var litBefore = asset.GetColor("_CloudLitColor");
+            sky.previewCloudMotionInEditMode = true;
+            sky.TransitionToPreset(CloudPreset.Overcast, 1f);
+            foreach (float t in Checkpoints) { sky.TimeOfDay = t; sky.Tick(0.2f); }
             Assert.AreEqual(before, asset.GetColor("_ZenithColor"));
+            Assert.AreEqual(offsetBefore, asset.GetVector("_CloudOffset"));
+            Assert.AreEqual(densityBefore, asset.GetVector("_CloudDensity"));
+            Assert.AreEqual(litBefore, asset.GetColor("_CloudLitColor"));
+            Assert.AreNotEqual(offsetBefore, sky.MaterialInstance.GetVector("_CloudOffset"), "The instance should receive the wind");
+            Assert.AreSame(asset.GetTexture("_CloudNoise"), sky.MaterialInstance.GetTexture("_CloudNoise"), "Noise must be shared, not copied");
+        }
+
+        // ------------------------------------------------------------------------------------
+        // Clouds
+
+        static Color32[] noise;
+        static Color32[] Noise => noise ??= CloudNoiseGenerator.Generate(CloudNoiseGenerator.DefaultSize, CloudNoiseGenerator.DefaultSeed);
+
+        /// <summary>CPU copy of the shader's density (shape and detail sampled at the same texel).</summary>
+        static float CoveredFraction(DayNightSkyController c, out float maxDensity)
+        {
+            c.GetCloudParams(out var shape, out var density, out _);
+            int covered = 0;
+            maxDensity = 0f;
+            foreach (var p in Noise)
+            {
+                float n = p.r / 255f + (p.g / 255f - 0.5f) * shape.w;
+                float d = Mathf.Clamp01(n * density.x + density.y) * density.z;
+                maxDensity = Mathf.Max(maxDensity, d);
+                if (d > 0.5f) covered++;
+            }
+            return covered / (float)Noise.Length;
+        }
+
+        [Test]
+        public void CloudNoise_IsSeamlessDeterministicAndEqualised()
+        {
+            int size = CloudNoiseGenerator.DefaultSize;
+            var a = Noise;
+            CollectionAssert.AreEqual(a, CloudNoiseGenerator.Generate(size, CloudNoiseGenerator.DefaultSeed), "Same seed must give the same texture");
+            CollectionAssert.AreNotEqual(a, CloudNoiseGenerator.Generate(size, 7), "Seed must change the texture");
+
+            foreach (int channel in new[] { 0, 1 })
+            {
+                int Get(int x, int y) => channel == 0 ? a[y * size + x].r : a[y * size + x].g;
+                double inner = 0, edge = 0, sum = 0;
+                for (int i = 0; i < size; i++)
+                {
+                    // Neighbour differences across the wrap must look like any other neighbours.
+                    edge += Mathf.Abs(Get(size - 1, i) - Get(0, i)) + Mathf.Abs(Get(i, size - 1) - Get(i, 0));
+                    inner += Mathf.Abs(Get(size / 2 - 1, i) - Get(size / 2, i)) + Mathf.Abs(Get(i, size / 2 - 1) - Get(i, size / 2));
+                }
+                foreach (var p in a) sum += channel == 0 ? p.r : p.g;
+                Debug.Log($"Noise channel {channel}: mean {sum / a.Length:0.0}, wrap step {edge / (2 * size):0.00}, inner step {inner / (2 * size):0.00}");
+                Assert.Less(edge, inner * 1.6 + size, $"Channel {channel} has a seam");
+                Assert.AreEqual(127.5, sum / a.Length, 2.0, $"Channel {channel} is not equalised");
+            }
+        }
+
+        [Test]
+        public void NoiseTextureAsset_IsLinearRepeatingAndMipmapped()
+        {
+            var tex = CloudNoiseGenerator.GetOrCreateTexture();
+            Assert.IsNotNull(tex);
+            Assert.AreEqual(TextureWrapMode.Repeat, tex.wrapModeU);
+            Assert.AreEqual(TextureWrapMode.Repeat, tex.wrapModeV);
+            Assert.Greater(tex.mipmapCount, 1);
+            Assert.IsFalse(tex.isDataSRGB);
+            var importer = (TextureImporter)AssetImporter.GetAtPath(CloudNoiseGenerator.TexturePath);
+            Assert.AreEqual(TextureImporterFormat.RG16, importer.GetPlatformTextureSettings("Android").format);
+            Assert.AreSame(tex, sky.skyMaterial.GetTexture("_CloudNoise"));
+        }
+
+        [Test]
+        public void Coverage_ControlsHowMuchSkyIsCovered()
+        {
+            sky.cloudCoverage = 0f;
+            Assert.AreEqual(0f, CoveredFraction(sky, out float maxAtZero));
+            Assert.AreEqual(0f, maxAtZero, "Coverage 0 must remove every cloud");
+
+            float previous = 0f;
+            for (int i = 1; i <= 10; i++)
+            {
+                sky.cloudCoverage = i / 10f;
+                float f = CoveredFraction(sky, out _);
+                Assert.GreaterOrEqual(f, previous, $"Coverage {i / 10f} covers less than the step before");
+                previous = f;
+            }
+            Assert.AreEqual(1f, previous, 1e-3f, "Coverage 1 must cover everything");
+
+            sky.ApplyPresetImmediate(CloudPreset.Clear);
+            float clear = CoveredFraction(sky, out _);
+            sky.ApplyPresetImmediate(CloudPreset.Cloudy);
+            float cloudy = CoveredFraction(sky, out _);
+            sky.ApplyPresetImmediate(CloudPreset.Overcast);
+            float overcast = CoveredFraction(sky, out _);
+            Debug.Log($"Covered: clear {clear:P0}, cloudy {cloudy:P0}, overcast {overcast:P0}");
+            Assert.Less(clear, 0.08f);
+            Assert.That(cloudy, NUnit.Framework.Is.InRange(0.25f, 0.6f), "Cloudy should leave plenty of sky");
+            Assert.Greater(overcast, 0.85f);
+        }
+
+        [Test]
+        public void Overcast_KeepsVariation()
+        {
+            sky.ApplyPresetImmediate(CloudPreset.Overcast);
+            sky.GetCloudParams(out var shape, out _, out var lighting);
+            float min = 1f, max = 0f;
+            foreach (var p in Noise)
+            {
+                float n = p.r / 255f + (p.g / 255f - 0.5f) * shape.w;
+                float thick = Mathf.Clamp01(n * lighting.x + lighting.y);
+                min = Mathf.Min(min, thick);
+                max = Mathf.Max(max, thick);
+            }
+            Assert.Greater(max - min, 0.8f, "Overcast must not become one flat colour");
+            var s = sky.Evaluate(12f);
+            Assert.Greater(Diff(s.cloudLit, s.cloudShade), 0.1f);
+        }
+
+        [Test]
+        public void Presets_ApplyImmediatelyAndTransitionSmoothly()
+        {
+            sky.ApplyPresetImmediate(CloudPreset.Overcast);
+            Assert.IsTrue(sky.CurrentWeather.Approximately(sky.overcastPreset));
+            Assert.IsFalse(sky.IsTransitioning);
+
+            sky.ApplyPresetImmediate(CloudPreset.Clear);
+            sky.TransitionToPreset(CloudPreset.Overcast, 4f);
+            var prev = sky.CurrentWeather;
+            for (int i = 0; i < 20; i++) // 2 of 4 seconds
+            {
+                sky.Tick(0.1f);
+                Assert.Less(Mathf.Abs(sky.CloudCoverage - prev.coverage), 0.05f, "Coverage jumped");
+                prev = sky.CurrentWeather;
+            }
+            Assert.That(sky.CloudCoverage, NUnit.Framework.Is.InRange(0.3f, 0.7f), "Half-way coverage expected");
+
+            // Switching mid-way starts from what is displayed now.
+            var shown = sky.CurrentWeather;
+            sky.TransitionToPreset(CloudPreset.Cloudy, 4f);
+            Assert.IsTrue(sky.CurrentWeather.Approximately(shown), "Starting a transition must not change the sky");
+            sky.Tick(0.05f);
+            Assert.Less(Mathf.Abs(sky.CloudCoverage - shown.coverage), 0.01f);
+            Assert.Less(Mathf.Abs(sky.OvercastAmount - shown.overcast), 0.01f);
+
+            for (int i = 0; i < 100; i++) sky.Tick(0.1f);
+            Assert.IsFalse(sky.IsTransitioning);
+            Assert.IsTrue(sky.CurrentWeather.Approximately(sky.cloudyPreset));
+
+            sky.TransitionToPreset(CloudPreset.Clear, 0f);
+            Assert.IsTrue(sky.CurrentWeather.Approximately(sky.clearPreset), "Zero duration applies at once");
+        }
+
+        static float WrappedStep(float a, float b)
+        {
+            float d = Mathf.Abs(a - b);
+            return Mathf.Min(d, 1f - d);
+        }
+
+        [Test]
+        public void Wind_ChangesNeverJumpAndOffsetStaysBounded()
+        {
+            sky.previewCloudMotionInEditMode = true;
+            sky.ApplyPresetImmediate(CloudPreset.Cloudy);
+            sky.WindSpeed = 0.02f;
+            sky.WindDirection = 0f;
+            const float dt = 0.02f;
+            // Largest legitimate detail step per tick at the highest speed used below.
+            float maxStep = 0.2f * dt * 0.35f / sky.cloudScale * 2.7f * 1.2f * 1.5f;
+
+            var prev = sky.CloudOffset;
+            for (int i = 0; i < 600; i++)
+            {
+                if (i == 150) sky.WindSpeed = 0.2f;
+                if (i == 300) sky.WindDirection = 135f;
+                if (i == 450) { sky.WindDirection = -90f; sky.WindSpeed = 0.05f; }
+                sky.Tick(dt);
+                var o = sky.CloudOffset;
+                for (int k = 0; k < 4; k++)
+                    Assert.Less(WrappedStep(o[k], prev[k]), maxStep, $"Offset jumped at step {i}");
+                prev = o;
+            }
+
+            // Direction is world based: 90° drifts the clouds towards +X, so the shape offset moves to -X.
+            sky.WindDirection = 90f;
+            var before = sky.CloudOffset;
+            sky.Tick(dt);
+            Assert.Less(WrappedStep(sky.CloudOffset.y, before.y), 1e-6f, "No Z motion for a +X wind");
+            Assert.Greater(WrappedStep(sky.CloudOffset.x, before.x), 0f);
+
+            // Hours of play at a strong wind: offsets stay in [0, 1), so precision never degrades.
+            sky.WindSpeed = 5f;
+            for (int i = 0; i < 100000; i++) sky.Tick(0.1f);
+            var far = sky.CloudOffset;
+            for (int k = 0; k < 4; k++) Assert.That(far[k], NUnit.Framework.Is.InRange(0f, 1f));
+            Assert.AreEqual(far, sky.MaterialInstance.GetVector("_CloudOffset"));
+        }
+
+        [Test]
+        public void Wind_DoesNotMoveInEditModeWithoutPreview()
+        {
+            sky.previewCloudMotionInEditMode = false;
+            var before = sky.CloudOffset;
+            for (int i = 0; i < 10; i++) sky.Tick(0.1f);
+            Assert.AreEqual(before, sky.CloudOffset);
+        }
+
+        [Test]
+        public void Overcast_DimsLightFromTheDayNightValueWithoutAccumulating()
+        {
+            var light = new GameObject("Sun").AddComponent<Light>();
+            light.type = LightType.Directional;
+            sky.sunLight = light;
+            try
+            {
+                sky.TimeOfDay = 12f;
+                sky.OvercastAmount = 0f;
+                sky.Tick(0f);
+                float clear = light.intensity;
+                Assert.AreEqual(sky.sunLightIntensity, clear, 1e-4f);
+
+                sky.OvercastAmount = 1f;
+                for (int i = 0; i < 50; i++) { sky.TimeOfDay = 12f; sky.Tick(0.016f); }
+                Assert.AreEqual(clear * sky.overcastLightMultiplier, light.intensity, 1e-4f, "Dimming must not accumulate");
+
+                sky.OvercastAmount = 0f;
+                sky.Tick(0f);
+                Assert.AreEqual(clear, light.intensity, 1e-4f, "Clearing up must restore the full light");
+            }
+            finally
+            {
+                Object.DestroyImmediate(light.gameObject);
+            }
+        }
+
+        [Test]
+        public void Overcast_MutesSkyButKeepsDayNightCharacter()
+        {
+            sky.OvercastAmount = 0f;
+            var clearNoon = sky.Evaluate(12f);
+            var clearDusk = sky.Evaluate(18f);
+            sky.OvercastAmount = 1f;
+            var greyNoon = sky.Evaluate(12f);
+            var greyNight = sky.Evaluate(0f);
+
+            float Saturation(Color c) => c.maxColorComponent - Mathf.Min(c.r, Mathf.Min(c.g, c.b));
+            Assert.Less(Saturation(greyNoon.zenith), Saturation(clearNoon.zenith) * 0.6f, "Overcast should mute the sky");
+            Assert.Less(greyNoon.zenith.maxColorComponent, clearNoon.zenith.maxColorComponent);
+            Assert.Greater(greyNoon.zenith.maxColorComponent, 0.3f, "Overcast day should stay bright enough to be cozy");
+            Assert.Less(greyNoon.sunVisibility, clearNoon.sunVisibility);
+
+            // Clouds: bright by day, warm at sunset, darker but visible against the night sky.
+            Assert.Greater(clearNoon.cloudLit.grayscale, 0.9f);
+            Assert.Greater(clearDusk.cloudLit.r, clearDusk.cloudLit.b + 0.1f, "Sunset clouds should be warm");
+            Assert.Less(greyNight.cloudLit.grayscale, 0.4f);
+            Assert.Greater(greyNight.cloudLit.grayscale, greyNight.zenith.grayscale + 0.04f, "Night clouds must remain readable");
+            Assert.AreEqual(0f, greyNight.cloudLit.a, "No sun glow on clouds at night");
         }
 
         [Test]

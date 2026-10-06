@@ -7,15 +7,23 @@ namespace DayNightSky.Editor
     {
         public const string MaterialPath = "Assets/DayNightSky/Materials/DayNightSky.mat";
         public const string ShaderName = "Skybox/Day Night Gradient";
+        public const string CloudNoiseProperty = "_CloudNoise";
 
-        /// <summary>Returns the sample material, creating it if it is missing.</summary>
+        /// <summary>Returns the sample material (with the shared cloud noise), creating either if missing.</summary>
         public static Material GetOrCreateMaterial()
         {
             var m = AssetDatabase.LoadAssetAtPath<Material>(MaterialPath);
-            if (m != null) return m;
-            m = new Material(Shader.Find(ShaderName)) { name = "DayNightSky" };
-            AssetDatabase.CreateAsset(m, MaterialPath);
-            AssetDatabase.SaveAssets();
+            if (m == null)
+            {
+                m = new Material(Shader.Find(ShaderName)) { name = "DayNightSky" };
+                AssetDatabase.CreateAsset(m, MaterialPath);
+            }
+            if (m.HasProperty(CloudNoiseProperty) && m.GetTexture(CloudNoiseProperty) == null)
+            {
+                m.SetTexture(CloudNoiseProperty, CloudNoiseGenerator.GetOrCreateTexture());
+                EditorUtility.SetDirty(m);
+                AssetDatabase.SaveAssets();
+            }
             return m;
         }
 
