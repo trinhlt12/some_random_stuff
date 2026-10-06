@@ -551,6 +551,16 @@ namespace DayNightSky
 
         static float Wrap(float hours) => Mathf.Repeat(hours, 24f);
 
+        /// <summary>
+        /// Sine of the sun elevation at a time of day (same path as <see cref="Evaluate"/>, without the
+        /// colours): 1 = straight overhead, 0 = on the horizon, negative = below. Cheap, no allocation.
+        /// </summary>
+        public float SunHeightAt(float hours)
+        {
+            float angle = (Wrap(hours) / 24f) * 2f * Mathf.PI - 0.5f * Mathf.PI;
+            return Mathf.Sin(angle) * Mathf.Sin(noonElevation * Mathf.Deg2Rad);
+        }
+
         /// <summary>Pure evaluation of the sky for a time; no side effects, no allocations.</summary>
         public SkyState Evaluate(float hours)
         {

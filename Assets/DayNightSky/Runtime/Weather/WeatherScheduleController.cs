@@ -86,6 +86,19 @@ namespace DayNightSky
         /// <summary>Shared-clock time at which a schedule time is reached, if the schedule keeps running from now.</summary>
         public double ScheduleToClockHours(double scheduleHours) => Sky.TotalHours + (scheduleHours - ScheduleHours);
 
+        /// <summary>
+        /// Schedule time that corresponds to a shared-clock time, assuming the schedule keeps running
+        /// with its current offset. False while it waits (override, returning, paused from those) or has no schedule.
+        /// </summary>
+        public bool TryGetScheduleHours(double clockHours, out double scheduleHours)
+        {
+            scheduleHours = 0.0;
+            bool running = ScheduleRunning || (mode == WeatherMode.Paused && modeBeforePause == WeatherMode.Automatic && !returning);
+            if (schedule == null || !running) return false;
+            scheduleHours = ScheduleHours + (clockHours - Sky.TotalHours);
+            return true;
+        }
+
         void OnEnable()
         {
             sky = GetComponent<DayNightSkyController>();
