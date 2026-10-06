@@ -2084,6 +2084,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1558325727}
   - component: {fileID: 1558325726}
+  - component: {fileID: 1558325728}
   m_Layer: 0
   m_Name: Day Night Sky
   m_TagString: Untagged
@@ -2331,6 +2332,23 @@ MonoBehaviour:
     softness: 0.6
     overcast: 1
     windSpeed: 0.016
+--- !u!114 &1558325728
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1558325725}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c6e227ea745067b4bb0909ae2c03ccd4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: DayNightSky.Runtime::DayNightSky.WeatherScheduleController
+  config: {fileID: 11400000, guid: a0e5a1022af3da54db963fa2c9f83a34, type: 2}
+  useSeedOverride: 0
+  seedOverride: 1
+  manualBlendSeconds: 4
+  previewInEditMode: 1
 --- !u!4 &1558325727
 Transform:
   m_ObjectHideFlags: 0
