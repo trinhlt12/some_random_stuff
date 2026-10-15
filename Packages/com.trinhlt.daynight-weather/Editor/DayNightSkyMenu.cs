@@ -5,7 +5,7 @@ namespace DayNightSky.Editor
 {
     public static class DayNightSkyMenu
     {
-        public const string MaterialPath = PackagePaths.Root + "/Materials/DayNightSky.mat";
+        public static readonly string MaterialPath = PackagePaths.Root + "/Materials/DayNightSky.mat";
         public const string ShaderName = "Skybox/Day Night Gradient";
         public const string CloudNoiseProperty = "_CloudNoise";
 

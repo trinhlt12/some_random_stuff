@@ -6,9 +6,9 @@ namespace DayNightSky.Editor
     /// <summary>Creates the sample rain material and prefab (once) and adds rain to a scene.</summary>
     public static class RainAssets
     {
-        public const string Folder = PackagePaths.Root + "/Rain";
-        public const string MaterialPath = Folder + "/RainStreak.mat";
-        public const string PrefabPath = Folder + "/Rain.prefab";
+        public static readonly string Folder = PackagePaths.Root + "/Rain";
+        public static readonly string MaterialPath = Folder + "/RainStreak.mat";
+        public static readonly string PrefabPath = Folder + "/Rain.prefab";
         public const string ShaderName = "DayNightSky/Rain Streak";
 
         public static Material GetOrCreateMaterial()

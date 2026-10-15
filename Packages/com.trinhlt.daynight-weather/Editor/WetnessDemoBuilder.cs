@@ -18,8 +18,8 @@ namespace DayNightSky.Editor
     public static class WetnessDemoBuilder
     {
         public const string RootName = "WeatherWetnessDemo";
-        public const string Folder = PackagePaths.Root + "/WetnessDemo";
-        public const string PrefabPath = Folder + "/WeatherWetnessDemo.prefab";
+        public static readonly string Folder = PackagePaths.Root + "/WetnessDemo";
+        public static readonly string PrefabPath = Folder + "/WeatherWetnessDemo.prefab";
         /// <summary>Sample lit shader with weather wetness (only used by the demo materials).</summary>
         public const string LitShader = "DayNightSky/Wet Lit";
 

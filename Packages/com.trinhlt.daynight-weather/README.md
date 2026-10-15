@@ -21,7 +21,9 @@ Pick one:
 
 - **Local folder** – *+ › Install package from disk…* and pick this folder's `package.json`, or copy the whole folder into the other project's `Packages/` (an embedded package, editable there).
 
-Requires URP (`com.unity.render-pipelines.universal`), which Package Manager resolves automatically.
+- **.unitypackage** – drag `DayNightSkyWeather-x.y.z.unitypackage` into the Project window (or *Assets › Import Package › Custom Package…*). It lands in `Assets/DayNightSky`; you can move the folder anywhere under `Assets/`. A .unitypackage cannot pull dependencies, so install **Universal RP** from Package Manager first.
+
+Requires URP (`com.unity.render-pipelines.universal`); the Git URL and local-folder installs pull it in automatically.
 
 ## Quick start
 
@@ -40,7 +42,7 @@ The sky controller puts its material into the scene skybox while enabled and res
 Materials using `DayNightSky/Wet Lit` work out of the box. For a custom HLSL shader, include the helper and scale by a per-material exposure (0 = never wet):
 
 ```hlsl
-#include "Packages/com.trinhlt.daynight-weather/Shaders/WeatherWetness.hlsl"
+#include "Packages/com.trinhlt.daynight-weather/Shaders/WeatherWetness.hlsl"  // or "Assets/DayNightSky/Shaders/..." when imported from a .unitypackage
 
 half wet = WeatherWetAmount(_WetExposure, 1);
 albedo     = WeatherWetAlbedo(albedo, wet, _WetDarkening);

@@ -4,6 +4,7 @@
 
 First release as a package, extracted from the `Assets/DayNightSky` folder.
 
+- Also shipped as a drag-and-drop `.unitypackage`; editor tools find their sample assets wherever the folder lives.
 - Procedural day/night gradient skybox with sun, moon, stars and drifting clouds (clear / cloudy / overcast).
 - Seeded weather schedule with forecast, sample config and Inspector test controls.
 - Camera-bound rain particle system driven by the weather schedule.
