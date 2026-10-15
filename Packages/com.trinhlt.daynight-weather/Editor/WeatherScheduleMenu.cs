@@ -5,7 +5,7 @@ namespace DayNightSky.Editor
 {
     public static class WeatherScheduleMenu
     {
-        public const string SampleConfigPath = "Assets/DayNightSky/Weather/SampleWeatherSchedule.asset";
+        public const string SampleConfigPath = PackagePaths.Root + "/Weather/SampleWeatherSchedule.asset";
 
         /// <summary>The ready-to-run sample config (Clear ↔ Cloudy ↔ Overcast), created if missing.</summary>
         public static WeatherScheduleConfig GetOrCreateSampleConfig()

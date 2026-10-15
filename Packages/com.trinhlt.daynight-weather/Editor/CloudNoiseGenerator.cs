@@ -13,7 +13,7 @@ namespace DayNightSky.Editor
     /// </summary>
     public static class CloudNoiseGenerator
     {
-        public const string TexturePath = "Assets/DayNightSky/Textures/CloudNoise.png";
+        public const string TexturePath = PackagePaths.Root + "/Textures/CloudNoise.png";
         public const int DefaultSize = 256;
         public const int DefaultSeed = 1337;
         const string SeedPrefix = "seed=";
